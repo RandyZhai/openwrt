@@ -76,8 +76,8 @@ jobs:
             grep -Ei '(error|failed|fatal|E:)' "$LOG" | tail -150 || tail -150 "$LOG"
             exit 1
           fi
-          ccache --max-size=5G >/dev/null
-          ccache --zero-stats >/dev/null
+          ccache --max-size=5G >/dev/null 2>&1
+          ccache --zero-stats >/dev/null 2>&1
 
       - name: Restore build cache
         uses: actions/cache@v4
@@ -120,37 +120,57 @@ jobs:
         run: |
           set -euo pipefail
           LOG="${RUNNER_TEMP}/external-packages.log"
-          rm -rf package/external
-          mkdir -p package/external
+          SRC="${RUNNER_TEMP}/openwrt-external-sources"
+          : >"$LOG"
+          rm -rf "$SRC" package/custom
+          mkdir -p "$SRC" package/custom
 
-          clone() {
+          clone_package() {
             local url="$1"
-            local dest="$2"
-            if ! git clone --depth 1 "$url" "$dest" >>"$LOG" 2>&1; then
-              echo "::error::Failed to clone $url"
-              tail -80 "$LOG"
+            local destination="$2"
+            local label="$3"
+            if ! git clone --depth 1 "$url" "$destination" >>"$LOG" 2>&1; then
+              echo "::error::Failed to clone ${label}: ${url}"
+              grep -Ei '(error|failed|fatal|not found|repository)' "$LOG" | tail -100 || tail -100 "$LOG"
               exit 1
             fi
           }
 
-          clone https://github.com/vernesong/OpenClash.git package/external/OpenClash
-          clone https://github.com/jerrykuku/luci-theme-argon.git package/external/luci-theme-argon
-          clone https://github.com/jerrykuku/luci-app-argon-config.git package/external/luci-app-argon-config
-          clone https://github.com/lisaac/luci-lib-docker.git package/external/luci-lib-docker
-          clone https://github.com/lisaac/luci-app-dockerman.git package/external/luci-app-dockerman-src
-          clone https://github.com/rabbitrogi/luci-app-zerotier.git package/external/luci-app-zerotier
+          install_package() {
+            local label="$1"
+            local source_dir="$2"
+            local destination_dir="$3"
+            if [ ! -f "$source_dir/Makefile" ]; then
+              echo "::error::${label} Makefile not found: ${source_dir}/Makefile"
+              find "$(dirname "$source_dir")" -maxdepth 6 -type f -name Makefile -print 2>/dev/null || true
+              exit 1
+            fi
+            rm -rf "$destination_dir"
+            cp -a "$source_dir" "$destination_dir"
+            test -f "$destination_dir/Makefile"
+          }
 
-          test -f package/external/OpenClash/luci-app-openclash/Makefile
-          test -f package/external/luci-theme-argon/Makefile
-          test -f package/external/luci-app-argon-config/Makefile
-          test -d package/external/luci-lib-docker/luci-lib-docker
-          test -f package/external/luci-app-dockerman-src/applications/luci-app-dockerman/Makefile
-          test -f package/external/luci-app-zerotier/Makefile
+          clone_package https://github.com/vernesong/OpenClash.git             "$SRC/OpenClash" OpenClash
+          clone_package https://github.com/jerrykuku/luci-theme-argon.git             "$SRC/luci-theme-argon" "Argon theme"
+          clone_package https://github.com/jerrykuku/luci-app-argon-config.git             "$SRC/luci-app-argon-config" "Argon config"
+          clone_package https://github.com/lisaac/luci-lib-docker.git             "$SRC/luci-lib-docker" luci-lib-docker
+          clone_package https://github.com/lisaac/luci-app-dockerman.git             "$SRC/luci-app-dockerman" Dockerman
+          clone_package https://github.com/rabbitrogi/luci-app-zerotier.git             "$SRC/luci-app-zerotier" "ZeroTier LuCI"
 
-          ln -s "$GITHUB_WORKSPACE/package/external/luci-lib-docker/luci-lib-docker" \
-            package/external/luci-lib-docker-package
-          ln -s "$GITHUB_WORKSPACE/package/external/luci-app-dockerman-src/applications/luci-app-dockerman" \
-            package/external/luci-app-dockerman
+          install_package OpenClash             "$SRC/OpenClash/luci-app-openclash"             package/custom/luci-app-openclash
+          install_package "Argon theme"             "$SRC/luci-theme-argon"             package/custom/luci-theme-argon
+          install_package "Argon config"             "$SRC/luci-app-argon-config"             package/custom/luci-app-argon-config
+          install_package luci-lib-docker             "$SRC/luci-lib-docker/collections/luci-lib-docker"             package/custom/luci-lib-docker
+          install_package Dockerman             "$SRC/luci-app-dockerman/applications/luci-app-dockerman"             package/custom/luci-app-dockerman
+          install_package "ZeroTier LuCI"             "$SRC/luci-app-zerotier"             package/custom/luci-app-zerotier
+
+          for package_name in             luci-app-openclash             luci-theme-argon             luci-app-argon-config             luci-lib-docker             luci-app-dockerman             luci-app-zerotier
+          do
+            test -f "package/custom/${package_name}/Makefile" || {
+              echo "::error::Flattened package missing: ${package_name}"
+              exit 1
+            }
+          done
 
       - name: Generate build configuration
         shell: bash
@@ -315,7 +335,10 @@ jobs:
           TARGET_DIR="bin/targets/${TARGET}/${SUBTARGET}"
           rm -rf "$ARTIFACT_DIR"
           mkdir -p "$ARTIFACT_DIR"
-          test -d "$TARGET_DIR"
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "::error::Target output directory not found: $TARGET_DIR"
+            exit 1
+          fi
           find "$TARGET_DIR" -maxdepth 1 -type f \
             \( -name '*.itb' -o -name '*.bin' -o -name '*.ubi' -o -name '*.ubifs' \
                -o -name '*.tar.gz' -o -name '*.fip' -o -name '*.manifest' \
