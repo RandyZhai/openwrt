@@ -1,0 +1,394 @@
+name: Build OpenWrt XG-040G-MD Docker ZT OpenClash Errors Only
+
+"on":
+  workflow_dispatch:
+    inputs:
+      upload_release:
+        description: "上传固件到 GitHub Release"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "37 0 * * 0"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: openwrt-xg-040g-md-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: Asia/Shanghai
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: main
+  TARGET: airoha
+  SUBTARGET: an7581
+  DEVICE: nokia_xg-040g-md-ubi
+  RELEASE_TAG: OpenWrt-XG-040G-MD
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: ${{ env.REPO_BRANCH }}
+          fetch-depth: 1
+
+      - name: Free disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          sudo apt-get clean >/dev/null 2>&1 || true
+          sudo docker system prune --all --force --volumes >/dev/null 2>&1 || true
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/apt.log"
+          if ! sudo apt-get update -qq >"$LOG" 2>&1; then
+            echo "::error::apt-get update failed"
+            tail -100 "$LOG"
+            exit 1
+          fi
+          if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            build-essential bzip2 ccache clang cmake cpio curl \
+            device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool \
+            lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev \
+            libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm \
+            lrzsz make mkisofs msmtp nano ninja-build p7zip p7zip-full patch \
+            pkgconf python3 python3-docutils python3-pip python3-ply \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs unzip vim wget xmlto xxd \
+            zlib1g-dev zstd >>"$LOG" 2>&1; then
+            echo "::error::Build dependency installation failed"
+            grep -Ei '(error|failed|fatal|E:)' "$LOG" | tail -150 || tail -150 "$LOG"
+            exit 1
+          fi
+          ccache --max-size=5G >/dev/null
+          ccache --zero-stats >/dev/null
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            dl
+            ${{ env.CCACHE_DIR }}
+          key: openwrt-${{ env.REPO_BRANCH }}-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ github.sha }}
+          restore-keys: |
+            openwrt-${{ env.REPO_BRANCH }}-${{ env.TARGET }}-${{ env.SUBTARGET }}-
+            openwrt-${{ env.REPO_BRANCH }}-
+
+      - name: Update official feeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/feeds.log"
+          : >"$LOG"
+          OK=false
+          for attempt in 1 2 3; do
+            if ./scripts/feeds update -a >>"$LOG" 2>&1; then
+              OK=true
+              break
+            fi
+            sleep 30
+          done
+          if [ "$OK" != true ]; then
+            echo "::error::OpenWrt feeds update failed"
+            grep -Ei '(error|failed|fatal|not found|does not exist)' "$LOG" | tail -150 || tail -150 "$LOG"
+            exit 1
+          fi
+          if ! ./scripts/feeds install -a >>"$LOG" 2>&1; then
+            echo "::error::OpenWrt feeds install failed"
+            grep -Ei '(error|failed|fatal|not found|does not exist)' "$LOG" | tail -150 || tail -150 "$LOG"
+            exit 1
+          fi
+
+      - name: Add external packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/external-packages.log"
+          rm -rf package/external
+          mkdir -p package/external
+
+          clone() {
+            local url="$1"
+            local dest="$2"
+            if ! git clone --depth 1 "$url" "$dest" >>"$LOG" 2>&1; then
+              echo "::error::Failed to clone $url"
+              tail -80 "$LOG"
+              exit 1
+            fi
+          }
+
+          clone https://github.com/vernesong/OpenClash.git package/external/OpenClash
+          clone https://github.com/jerrykuku/luci-theme-argon.git package/external/luci-theme-argon
+          clone https://github.com/jerrykuku/luci-app-argon-config.git package/external/luci-app-argon-config
+          clone https://github.com/lisaac/luci-lib-docker.git package/external/luci-lib-docker
+          clone https://github.com/lisaac/luci-app-dockerman.git package/external/luci-app-dockerman-src
+          clone https://github.com/rabbitrogi/luci-app-zerotier.git package/external/luci-app-zerotier
+
+          test -f package/external/OpenClash/luci-app-openclash/Makefile
+          test -f package/external/luci-theme-argon/Makefile
+          test -f package/external/luci-app-argon-config/Makefile
+          test -d package/external/luci-lib-docker/luci-lib-docker
+          test -f package/external/luci-app-dockerman-src/applications/luci-app-dockerman/Makefile
+          test -f package/external/luci-app-zerotier/Makefile
+
+          ln -s "$GITHUB_WORKSPACE/package/external/luci-lib-docker/luci-lib-docker" \
+            package/external/luci-lib-docker-package
+          ln -s "$GITHUB_WORKSPACE/package/external/luci-app-dockerman-src/applications/luci-app-dockerman" \
+            package/external/luci-app-dockerman
+
+      - name: Generate build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/defconfig.log"
+          rm -f .config .config.old
+          cat > .config <<'EOF'
+          CONFIG_CCACHE=y
+
+          CONFIG_TARGET_airoha=y
+          CONFIG_TARGET_airoha_an7581=y
+          CONFIG_TARGET_airoha_an7581_DEVICE_nokia_xg-040g-md-ubi=y
+
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+
+          CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_PACKAGE_luci-app-argon-config=y
+
+          CONFIG_PACKAGE_zerotier=y
+          CONFIG_PACKAGE_luci-app-zerotier=y
+
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+          CONFIG_PACKAGE_luci-lib-docker=y
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_dnsmasq=n
+          CONFIG_PACKAGE_dnsmasq-full=y
+
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_blockd=y
+          CONFIG_PACKAGE_e2fsprogs=y
+          CONFIG_PACKAGE_fdisk=y
+          CONFIG_PACKAGE_lsblk=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-usb-storage-uas=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-nls-utf8=y
+
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-ftdi=y
+          CONFIG_PACKAGE_kmod-usb-serial-pl2303=y
+
+          CONFIG_PACKAGE_luci-app-commands=y
+          CONFIG_PACKAGE_openssh-sftp-server=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_wget-ssl=y
+          CONFIG_PACKAGE_bash=y
+          CONFIG_PACKAGE_nano=y
+          CONFIG_PACKAGE_htop=y
+          CONFIG_PACKAGE_iperf3=y
+          CONFIG_PACKAGE_ethtool=y
+          EOF
+
+          if ! make defconfig >"$LOG" 2>&1; then
+            echo "::error::make defconfig failed"
+            grep -Ei '(error|failed|fatal|not found|does not exist|warning:.*dependency)' "$LOG" | tail -150 || tail -150 "$LOG"
+            exit 1
+          fi
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUIRED="
+          CONFIG_TARGET_airoha
+          CONFIG_TARGET_airoha_an7581
+          CONFIG_TARGET_airoha_an7581_DEVICE_nokia_xg-040g-md-ubi
+          CONFIG_PACKAGE_luci
+          CONFIG_PACKAGE_luci-theme-argon
+          CONFIG_PACKAGE_luci-app-argon-config
+          CONFIG_PACKAGE_zerotier
+          CONFIG_PACKAGE_luci-app-zerotier
+          CONFIG_PACKAGE_docker
+          CONFIG_PACKAGE_dockerd
+          CONFIG_PACKAGE_luci-lib-docker
+          CONFIG_PACKAGE_luci-app-dockerman
+          CONFIG_PACKAGE_luci-app-openclash
+          CONFIG_PACKAGE_dnsmasq-full
+          CONFIG_PACKAGE_block-mount
+          CONFIG_PACKAGE_kmod-usb-storage
+          CONFIG_PACKAGE_kmod-usb-storage-uas
+          CONFIG_PACKAGE_kmod-fs-ext4
+          "
+          MISSING=""
+          for symbol in $REQUIRED; do
+            grep -q "^${symbol}=y$" .config || MISSING="$MISSING $symbol"
+          done
+          if grep -q '^CONFIG_PACKAGE_dnsmasq=y$' .config; then
+            echo "::error::dnsmasq conflicts with dnsmasq-full"
+            exit 1
+          fi
+          if [ -n "$MISSING" ]; then
+            echo "::error::Required configuration missing:$MISSING"
+            exit 1
+          fi
+
+      - name: Download sources
+        shell: bash
+        timeout-minutes: 120
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/download.log"
+          : >"$LOG"
+          OK=false
+          for attempt in 1 2 3; do
+            if make download -j"$(nproc)" V=s >>"$LOG" 2>&1; then
+              OK=true
+              break
+            fi
+            sleep 30
+          done
+          if [ "$OK" != true ]; then
+            echo "::error::make download failed"
+            grep -Ei '(error|failed|fatal|not found|404|hash mismatch)' "$LOG" | tail -200 || tail -200 "$LOG"
+            exit 1
+          fi
+          find dl -type f -size -1024c -delete || true
+
+      - name: Compile firmware
+        shell: bash
+        timeout-minutes: 360
+        run: |
+          set -o pipefail
+          PARALLEL_LOG="${GITHUB_WORKSPACE}/build-parallel.log"
+          SERIAL_LOG="${GITHUB_WORKSPACE}/build-single.log"
+          if make -j"$(nproc)" V=s >"$PARALLEL_LOG" 2>&1; then
+            exit 0
+          fi
+          if make -j1 V=sc >"$SERIAL_LOG" 2>&1; then
+            exit 0
+          fi
+          echo "::error::Firmware build failed"
+          grep -Ei '(error:|error [0-9]+|failed to build|no such file|cannot stat|not found|undefined reference|make\[[0-9]+\]: \*\*\*)' \
+            "$SERIAL_LOG" | tail -250 || true
+          echo "===== Last 120 lines ====="
+          tail -120 "$SERIAL_LOG"
+          exit 1
+
+      - name: Set build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date +'%Y-%m-%d_%H-%M-%S')" >> "$GITHUB_ENV"
+          echo "SHORT_COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "FULL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Prepare firmware artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_DIR="${GITHUB_WORKSPACE}/artifact"
+          TARGET_DIR="bin/targets/${TARGET}/${SUBTARGET}"
+          rm -rf "$ARTIFACT_DIR"
+          mkdir -p "$ARTIFACT_DIR"
+          test -d "$TARGET_DIR"
+          find "$TARGET_DIR" -maxdepth 1 -type f \
+            \( -name '*.itb' -o -name '*.bin' -o -name '*.ubi' -o -name '*.ubifs' \
+               -o -name '*.tar.gz' -o -name '*.fip' -o -name '*.manifest' \
+               -o -name '*.buildinfo' -o -name '*.json' -o -name 'sha256sums' \) \
+            -exec cp {} "$ARTIFACT_DIR/" \;
+          cp .config "$ARTIFACT_DIR/config.buildinfo"
+          git log -1 --format=fuller > "$ARTIFACT_DIR/source-version.txt"
+          {
+            echo "Repository: ${REPO_URL}"
+            echo "Branch: ${REPO_BRANCH}"
+            echo "Target: ${TARGET}/${SUBTARGET}"
+            echo "Device: ${DEVICE}"
+            echo "Commit: ${FULL_COMMIT}"
+            echo "Build date: ${BUILD_DATE}"
+            echo "GitHub run ID: ${GITHUB_RUN_ID}"
+          } > "$ARTIFACT_DIR/build-information.txt"
+          if ! find "$ARTIFACT_DIR" -maxdepth 1 -type f -name '*sysupgrade.itb' -print -quit | grep -q .; then
+            echo "::error::XG-040G-MD UBI sysupgrade.itb was not generated"
+            exit 1
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-XG-040G-MD-${{ env.BUILD_TIME }}-${{ env.SHORT_COMMIT }}
+          path: ${{ github.workspace }}/artifact/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload firmware to GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_release == true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: OpenWrt XG-040G-MD Latest Build
+          prerelease: false
+          draft: false
+          make_latest: true
+          files: |
+            ${{ github.workspace }}/artifact/*
+          body: |
+            ## OpenWrt XG-040G-MD 自动编译固件
+
+            - 源码：OpenWrt main
+            - 目标设备：Nokia XG-040G-MD UBI
+            - Docker 与 Dockerman
+            - ZeroTier 与 LuCI 管理页
+            - OpenClash
+            - Argon 主题
+            - USB ext4 存储支持
+
+            Docker Root Dir 请在安装后指向已自动挂载的 USB ext4 目录。
+            刷机前请确认闪存型号并完成原厂分区备份。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-XG-040G-MD-errors-${{ github.run_id }}
+          path: |
+            build-parallel.log
+            build-single.log
+            .config
+            feeds.conf.default
+            logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf staging_dir build_dir tmp >/dev/null 2>&1 || true
