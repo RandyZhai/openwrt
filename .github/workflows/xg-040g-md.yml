@@ -67,11 +67,11 @@ jobs:
             lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev \
             libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
             libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm \
-            lrzsz make mkisofs msmtp nano ninja-build p7zip p7zip-full patch \
-            pkgconf python3 python3-docutils python3-pip python3-ply \
-            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools \
-            subversion swig texinfo uglifyjs unzip vim wget xmlto xxd \
-            zlib1g-dev zstd >>"$LOG" 2>&1; then
+            make mkisofs ninja-build p7zip p7zip-full patch pkgconf python3 \
+            python3-docutils python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig \
+            texinfo uglifyjs unzip vim wget xmlto xxd zlib1g-dev zstd \
+            >>"$LOG" 2>&1; then
             echo "::error::Build dependency installation failed"
             grep -Ei '(error|failed|fatal|E:)' "$LOG" | tail -150 || tail -150 "$LOG"
             exit 1
@@ -115,61 +115,81 @@ jobs:
             exit 1
           fi
 
-      - name: Add external packages
+          # These packages must come from official OpenWrt feeds.
+          for package_name in docker dockerd zerotier luci-lib-docker luci-app-dockerman; do
+            if ! find feeds -type f -path "*/${package_name}/Makefile" -print -quit | grep -q .; then
+              echo "::error::Required official package definition not found: ${package_name}"
+              exit 1
+            fi
+          done
+
+      - name: Add only packages missing from official feeds
         shell: bash
         run: |
           set -euo pipefail
           LOG="${RUNNER_TEMP}/external-packages.log"
-          SRC="${RUNNER_TEMP}/openwrt-external-sources"
+          SRC="${RUNNER_TEMP}/external-sources"
           : >"$LOG"
           rm -rf "$SRC" package/custom
           mkdir -p "$SRC" package/custom
 
-          clone_package() {
-            local url="$1"
-            local destination="$2"
-            local label="$3"
-            if ! git clone --depth 1 "$url" "$destination" >>"$LOG" 2>&1; then
-              echo "::error::Failed to clone ${label}: ${url}"
+          package_defined() {
+            local package_name="$1"
+            if find package feeds -type f -path "*/${package_name}/Makefile" -print -quit | grep -q .; then
+              return 0
+            fi
+            grep -Rqs --include=Makefile \
+              -E "(^|[[:space:]])(PKG_NAME|LUCI_BASENAME):=${package_name}$|define Package/${package_name}([/:]|$)" \
+              package feeds
+          }
+
+          clone_and_install() {
+            local package_name="$1"
+            local url="$2"
+            local repo_dir="$3"
+            local source_subdir="$4"
+
+            if package_defined "$package_name"; then
+              return 0
+            fi
+
+            if ! git clone --depth 1 "$url" "$SRC/$repo_dir" >>"$LOG" 2>&1; then
+              echo "::error::Failed to clone ${package_name}: ${url}"
               grep -Ei '(error|failed|fatal|not found|repository)' "$LOG" | tail -100 || tail -100 "$LOG"
               exit 1
             fi
-          }
 
-          install_package() {
-            local label="$1"
-            local source_dir="$2"
-            local destination_dir="$3"
+            local source_dir="$SRC/$repo_dir"
+            if [ -n "$source_subdir" ]; then
+              source_dir="$source_dir/$source_subdir"
+            fi
+
             if [ ! -f "$source_dir/Makefile" ]; then
-              echo "::error::${label} Makefile not found: ${source_dir}/Makefile"
-              find "$(dirname "$source_dir")" -maxdepth 6 -type f -name Makefile -print 2>/dev/null || true
+              echo "::error::${package_name} Makefile not found: ${source_dir}/Makefile"
+              find "$SRC/$repo_dir" -maxdepth 6 -type f -name Makefile -print 2>/dev/null || true
               exit 1
             fi
-            rm -rf "$destination_dir"
-            cp -a "$source_dir" "$destination_dir"
-            test -f "$destination_dir/Makefile"
+
+            cp -a "$source_dir" "package/custom/$package_name"
+            test -f "package/custom/$package_name/Makefile"
           }
 
-          clone_package https://github.com/vernesong/OpenClash.git             "$SRC/OpenClash" OpenClash
-          clone_package https://github.com/jerrykuku/luci-theme-argon.git             "$SRC/luci-theme-argon" "Argon theme"
-          clone_package https://github.com/jerrykuku/luci-app-argon-config.git             "$SRC/luci-app-argon-config" "Argon config"
-          clone_package https://github.com/lisaac/luci-lib-docker.git             "$SRC/luci-lib-docker" luci-lib-docker
-          clone_package https://github.com/lisaac/luci-app-dockerman.git             "$SRC/luci-app-dockerman" Dockerman
-          clone_package https://github.com/rabbitrogi/luci-app-zerotier.git             "$SRC/luci-app-zerotier" "ZeroTier LuCI"
+          # Clone only when the package is absent from official OpenWrt feeds.
+          clone_and_install luci-app-openclash \
+            https://github.com/vernesong/OpenClash.git OpenClash luci-app-openclash
+          clone_and_install luci-theme-argon \
+            https://github.com/jerrykuku/luci-theme-argon.git luci-theme-argon ""
+          clone_and_install luci-app-argon-config \
+            https://github.com/jerrykuku/luci-app-argon-config.git luci-app-argon-config ""
+          clone_and_install luci-app-zerotier \
+            https://github.com/rabbitrogi/luci-app-zerotier.git luci-app-zerotier ""
 
-          install_package OpenClash             "$SRC/OpenClash/luci-app-openclash"             package/custom/luci-app-openclash
-          install_package "Argon theme"             "$SRC/luci-theme-argon"             package/custom/luci-theme-argon
-          install_package "Argon config"             "$SRC/luci-app-argon-config"             package/custom/luci-app-argon-config
-          install_package luci-lib-docker             "$SRC/luci-lib-docker/collections/luci-lib-docker"             package/custom/luci-lib-docker
-          install_package Dockerman             "$SRC/luci-app-dockerman/applications/luci-app-dockerman"             package/custom/luci-app-dockerman
-          install_package "ZeroTier LuCI"             "$SRC/luci-app-zerotier"             package/custom/luci-app-zerotier
-
-          for package_name in             luci-app-openclash             luci-theme-argon             luci-app-argon-config             luci-lib-docker             luci-app-dockerman             luci-app-zerotier
-          do
-            test -f "package/custom/${package_name}/Makefile" || {
-              echo "::error::Flattened package missing: ${package_name}"
+          # Never clone external replacements for these official packages.
+          for package_name in docker dockerd zerotier luci-lib-docker luci-app-dockerman; do
+            if ! package_defined "$package_name"; then
+              echo "::error::Official package is unavailable: ${package_name}"
               exit 1
-            }
+            fi
           done
 
       - name: Generate build configuration
@@ -385,7 +405,7 @@ jobs:
 
             - 源码：OpenWrt main
             - 目标设备：Nokia XG-040G-MD UBI
-            - Docker 与 Dockerman
+            - Docker、Dockerd 与官方 Dockerman
             - ZeroTier 与 LuCI 管理页
             - OpenClash
             - Argon 主题
