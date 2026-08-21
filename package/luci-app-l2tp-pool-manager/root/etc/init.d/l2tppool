@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+# l2tppool init - generate configs from /etc/config/l2tppool at boot
+
+START=99
+USE_PROCD=1
+
+SCRIPT=/usr/libexec/l2tppool.sh
+
+start_service() {
+	# only auto-apply if globally enabled
+	local en
+	en="$(uci -q get l2tppool.global.enabled 2>/dev/null)"
+	[ "$en" = "1" ] || return 0
+	"$SCRIPT" apply >/dev/null 2>&1
+}
+
+reload() {
+	start_service
+}

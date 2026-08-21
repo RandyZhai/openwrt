@@ -1,0 +1,196 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "L2TP账号池"
+msgstr "L2TP账号池"
+
+msgid "L2TP Pool - Overview"
+msgstr "L2TP账号池 - 总览"
+
+msgid "L2TP Accounts"
+msgstr "L2TP账号"
+
+msgid "L2TP accounts"
+msgstr "L2TP账号"
+
+msgid "L2TP account"
+msgstr "L2TP账号"
+
+msgid "SSID Bindings"
+msgstr "SSID绑定"
+
+msgid "SSID bindings"
+msgstr "SSID绑定"
+
+msgid "SSID binding"
+msgstr "SSID绑定"
+
+msgid "Rotation"
+msgstr "轮换"
+
+msgid "Diagnostics"
+msgstr "诊断"
+
+msgid "Overview"
+msgstr "总览"
+
+msgid "Global settings"
+msgstr "全局设置"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "IP check URL"
+msgstr "IP检测地址"
+
+msgid "Redial wait (s)"
+msgstr "重拨等待(秒)"
+
+msgid "Default rotate mode"
+msgstr "默认轮换模式"
+
+msgid "Interface name"
+msgstr "接口名"
+
+msgid "Server"
+msgstr "服务器"
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Pool"
+msgstr "账号池"
+
+msgid "Metric"
+msgstr "Metric"
+
+msgid "MTU"
+msgstr "MTU"
+
+msgid "SSID"
+msgstr "SSID"
+
+msgid "Subnet"
+msgstr "网段"
+
+msgid "Subnet (CIDR)"
+msgstr "网段(CIDR)"
+
+msgid "L2TP account"
+msgstr "L2TP账号"
+
+msgid "Rotate mode"
+msgstr "轮换模式"
+
+msgid "Account pools"
+msgstr "账号池"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "Accounts in pool"
+msgstr "池中账号"
+
+msgid "Account"
+msgstr "账号"
+
+msgid "Public IP"
+msgstr "当前公网IP"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Dialing"
+msgstr "拨号中"
+
+msgid "Redial"
+msgstr "重拨"
+
+msgid "Rotate"
+msgstr "换号"
+
+msgid "Rotate all"
+msgstr "全部轮换"
+
+msgid "Refresh status"
+msgstr "刷新状态"
+
+msgid "Apply config"
+msgstr "重新应用配置"
+
+msgid "Running, please wait..."
+msgstr "执行中，请稍候..."
+
+msgid "Done"
+msgstr "完成"
+
+msgid "OK"
+msgstr "确定"
+
+msgid "No bindings configured. Add them under SSID Bindings and click Apply config."
+msgstr "尚未配置绑定。请在「SSID绑定」中添加，再回到总览点「重新应用配置」。"
+
+msgid "No bindings configured."
+msgstr "尚未配置绑定。"
+
+msgid "Current account"
+msgstr "当前账号"
+
+msgid "Rotation log"
+msgstr "轮换日志"
+
+msgid "Clear log"
+msgstr "清空日志"
+
+msgid "Rotating, please wait..."
+msgstr "正在换号，请稍候..."
+
+msgid "Rotating all bindings..."
+msgstr "正在轮换全部绑定..."
+
+msgid "Check IP"
+msgstr "检测IP"
+
+msgid "Refresh diagnostics"
+msgstr "刷新诊断"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "no output"
+msgstr "无输出"
+
+msgid "failed"
+msgstr "失败"
+
+msgid "IP check failed"
+msgstr "IP检测失败"
+
+msgid "One-glance view of every SSID, its bound L2TP egress, current public IP and connection state. Apply config regenerates network/wireless/pbr from /etc/config/l2tppool."
+msgstr "一屏查看每个SSID、绑定的L2TP出口、当前公网IP与连接状态。「重新应用配置」会根据 /etc/config/l2tppool 重新生成 network/wireless/pbr。"
+
+msgid "Add/remove L2TP dial accounts. Each becomes an independent interface (proto l2tp, defaultroute=0). Save here, then click Apply config on the Overview page to generate the interfaces."
+msgstr "增删L2TP拨号账号。每个账号会生成独立接口(proto l2tp, defaultroute=0)。保存后到总览页点「重新应用配置」生成接口。"
+
+msgid "Each binding creates an independent LAN segment + SSID, and binds it to a chosen L2TP account via a PBR policy. Save here, then click Apply config on the Overview page."
+msgstr "每个绑定会创建独立LAN网段+SSID，并通过PBR策略绑定到指定L2TP账号。保存后到总览页点「重新应用配置」。"
+
+msgid "Switch a SSID from its current L2TP account to the next enabled account in the pool. PBR is updated and the new egress IP is probed automatically."
+msgstr "把某SSID从当前L2TP账号切换到池中下一个可用账号，自动更新PBR并探测新出口IP。"
+
+msgid "Inspect generated network/wireless/pbr config, routes, interface states and recent logs. Use ipcheck to probe a single interface public IP."
+msgstr "查看生成的 network/wireless/pbr 配置、路由、接口状态与最近日志。可用 ipcheck 探测单个接口公网IP。"
