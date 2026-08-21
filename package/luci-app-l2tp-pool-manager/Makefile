@@ -34,6 +34,6 @@ define Package/$(PKG_NAME)/description
   view and connection status. All controlled from /etc/config/l2tppool.
 endef
 
-include ../../luci.mk
+include ../../feeds/luci/luci.mk
 
 # call BuildPackage - implicit via luci.mk
