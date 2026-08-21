@@ -48,16 +48,16 @@ jobs:
           EOF
           make defconfig
 
-      - name: Build package (clean + package target)
+      - name: Build package (clean + compile)
         run: |
           cd ${SDK_ROOT}
           echo "=== Clean previous build ==="
           make package/luci-app-l2tp-pool-manager/clean V=s
-          echo "=== Build ipk ==="
-          make package/luci-app-l2tp-pool-manager/package V=s -j$(nproc)
+          echo "=== Compile and generate ipk ==="
+          make package/luci-app-l2tp-pool-manager/compile V=s -j$(nproc)
           echo "=== Search for generated ipk ==="
-          find ${SDK_ROOT}/bin -name "luci-app-l2tp-pool-manager*.ipk" 2>/dev/null || echo "NO IPK FOUND IN bin/"
-          find ${SDK_ROOT} -name "luci-app-l2tp-pool-manager*.ipk" 2>/dev/null || echo "NO IPK FOUND ANYWHERE"
+          find ${SDK_ROOT}/bin -name "*l2tppool*" -o -name "*luci-app-l2tp-pool*" 2>/dev/null || echo "NO IPK FOUND IN bin/"
+          ls -laR ${SDK_ROOT}/bin/packages/ 2>/dev/null | head -50 || echo "bin/packages/ not found"
 
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
