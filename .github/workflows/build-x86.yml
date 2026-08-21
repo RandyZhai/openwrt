@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout package source
         uses: actions/checkout@v4
@@ -22,48 +22,83 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential git wget ccache rsync
 
-      - name: Download OpenWrt SDK for x86_64
+      - name: Download and extract OpenWrt SDK for x86_64
         run: |
-          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-          tar xf openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-          echo "SDK_ROOT=$PWD/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64" >> $GITHUB_ENV
+          wget -q -O sdk.tar.xz https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          tar xf sdk.tar.xz
+          # Auto-detect extracted directory name (robust against version changes)
+          SDK_DIR=$(ls -d openwrt-sdk-* | head -1)
+          echo "SDK_ROOT=$SDK_DIR" >> $GITHUB_ENV
+          echo "Extracted SDK to: $SDK_DIR"
+          ls "$SDK_DIR"
 
-      - name: Copy package into SDK
+      - name: Copy package into SDK (verify structure)
         run: |
-          cp -r package-src/package/luci-app-l2tp-pool-manager ${SDK_ROOT}/package/
-          echo "=== Verify package location ==="
-          ls -la ${SDK_ROOT}/package/luci-app-l2tp-pool-manager/
+          echo "=== Source tree ==="
+          find package-src -type f | head -30
+          echo ""
+          echo "=== Copying to SDK/package/ ==="
+          cp -r package-src/package/luci-app-l2tp-pool-manager "${SDK_ROOT}/package/"
+          echo ""
+          echo "=== Verify copied package ==="
+          ls -laR "${SDK_ROOT}/package/luci-app-l2tp-pool-manager/"
 
-      - name: Update and install feeds
+      - name: Setup feeds (verify luci.mk exists after install)
         run: |
-          cd ${SDK_ROOT}
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          cd "${SDK_ROOT}"
+          echo "=== feeds.conf contents ==="
+          cat feeds.conf.default 2>/dev/null || cat feeds.conf 2>/dev/null || echo "NO FEEDS CONF!"
+          echo ""
+          echo "=== Running feeds update ==="
+          ./scripts/feeds update -a 2>&1
+          echo ""
+          echo "=== Running feeds install ==="
+          ./scripts/feeds install -a 2>&1
+          echo ""
+          echo "=== CRITICAL: verify luci.mk exists ==="
+          LUCI_MK=$(find "${SDK_ROOT}/feeds" -name "luci.mk" 2>/dev/null | head -1)
+          if [ -n "$LUCI_MK" ]; then
+            echo "FOUND: $LUCI_MK"
+          else
+            echo "ERROR: luci.mk NOT FOUND in any feed!"
+            echo "Contents of feeds/:"
+            ls -la "${SDK_ROOT}/feeds/" 2>/dev/null || echo "feeds/ dir missing"
+            exit 1
+          fi
 
-      - name: Configure (enable l2tppool)
+      - name: Configure (enable package + verify)
         run: |
-          cd ${SDK_ROOT}
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-l2tp-pool-manager=y
-          EOF
-          make defconfig
+          cd "${SDK_ROOT}"
+          echo "CONFIG_PACKAGE_luci-app-l2tp-pool-manager=y" >> .config
+          make defconfig 2>&1
+          echo ""
+          echo "=== Verify package is enabled in .config ==="
+          grep -E "luci.app.l2tp|l2tppool" .config || echo "WARNING: package NOT found in .config!"
 
-      - name: Build package (clean + compile)
+      - name: Build package
         run: |
-          cd ${SDK_ROOT}
-          echo "=== Clean previous build ==="
-          make package/luci-app-l2tp-pool-manager/clean V=s
-          echo "=== Compile and generate ipk ==="
-          make package/luci-app-l2tp-pool-manager/compile V=s -j$(nproc)
-          echo "=== Search for generated ipk ==="
-          find ${SDK_ROOT}/bin -name "*l2tppool*" -o -name "*luci-app-l2tp-pool*" 2>/dev/null || echo "NO IPK FOUND IN bin/"
-          ls -laR ${SDK_ROOT}/bin/packages/ 2>/dev/null | head -50 || echo "bin/packages/ not found"
+          cd "${SDK_ROOT}"
+          echo "=== Step 1: Clean ==="
+          make package/luci-app-l2tp-pool-manager/clean V=s 2>&1 | tail -20
+          echo ""
+          echo "=== Step 2: Compile (this generates the ipk) ==="
+          make package/luci-app-l2tp-pool-manager/compile V=s -j$(nproc) 2>&1 | tail -80
+          echo ""
+          echo "=== Step 3: Search EVERYWHERE for ipk ==="
+          echo "--- Search in bin/ ---"
+          find "${SDK_ROOT}/bin" -name "*.ipk" 2>/dev/null | grep -i "l2tppool\|luci-app-l2tp" || echo "(not found in bin/)"
+          echo ""
+          echo "--- Search entire SDK ---"
+          find "${SDK_ROOT}" -maxdepth 6 -name "*.ipk" 2>/dev/null | grep -i "l2tppool\|luci-app-l2tp" || echo "(not found anywhere)"
+          echo ""
+          echo "--- List all ipks in packages output dirs ---"
+          find "${SDK_ROOT}/bin/packages" -name "*.ipk" 2>/dev/null | head -30 || echo "no ipks at all"
 
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-l2tp-pool-manager-ipk
           path: |
-            ${SDK_ROOT}/bin/packages/**/*.ipk
-            **/luci-app-l2tp-pool-manager*.ipk
+            **/*l2tppool*.ipk
+            **/*luci-app-l2tp*.ipk
           if-no-files-found: warn
