@@ -30,8 +30,7 @@ jobs:
 
       - name: Copy package into SDK
         run: |
-          mkdir -p ${SDK_ROOT}/package/luci-app-l2tp-pool-manager
-          cp -r package-src/* ${SDK_ROOT}/package/luci-app-l2tp-pool-manager/
+          cp -r package-src/package/luci-app-l2tp-pool-manager ${SDK_ROOT}/package/
 
       - name: Update and install feeds
         run: |
