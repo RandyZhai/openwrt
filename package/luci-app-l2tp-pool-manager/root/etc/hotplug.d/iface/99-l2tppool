@@ -1,0 +1,23 @@
+#!/bin/sh
+# Refresh cached public IP when an L2TP interface comes up/down.
+# Triggered by netifd hotplug.
+
+[ -x /usr/libexec/l2tppool.sh ] || exit 0
+
+# only handle interfaces that look like our L2TP clients
+case "$INTERFACE" in
+	l2tp_*) ;;
+	*) exit 0 ;;
+esac
+
+case "$ACTION" in
+	ifup)
+		# small delay to let route settle, then probe IP
+		( sleep 3; /usr/libexec/l2tppool.sh ipcheck "$INTERFACE" >/dev/null 2>&1 ) &
+		;;
+	ifdown)
+		rm -f "/tmp/l2tppool/$INTERFACE.ip" 2>/dev/null
+		;;
+esac
+
+exit 0

@@ -1,0 +1,12 @@
+{
+	"luci-app-l2tppool": {
+		"description": "L2TP Pool Manager access controls",
+		"read": {
+			"uci": [ "l2tppool", "network", "pbr", "wireless", "dhcp" ],
+			"exec": [ "/usr/libexec/l2tppool.sh" ]
+		},
+		"write": {
+			"uci": [ "l2tppool", "network", "pbr", "wireless", "dhcp" ]
+		}
+	}
+}
