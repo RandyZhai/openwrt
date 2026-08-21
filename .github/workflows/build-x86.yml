@@ -24,9 +24,9 @@ jobs:
 
       - name: Download OpenWrt SDK for x86_64
         run: |
-          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64.tar.xz
-          tar xf openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64.tar.xz
-          echo "SDK_ROOT=$PWD/openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64" >> $GITHUB_ENV
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          tar xf openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          echo "SDK_ROOT=$PWD/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64" >> $GITHUB_ENV
 
       - name: Copy package into SDK
         run: |
