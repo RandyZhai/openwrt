@@ -16,7 +16,6 @@ LUCI_TITLE:=L2TP Pool Manager (multi-SSID egress binding)
 LUCI_DEPENDS:=\
 	+luci-base \
 	+xl2tpd \
-	+ppp \
 	+ppp-mod-pppol2tp \
 	+pbr \
 	+luci-app-pbr \
