@@ -57,6 +57,24 @@ jobs:
           EOF
           make defconfig
 
+      - name: Diagnose l2tppool package
+        run: |
+          echo "=== 1. Check luci.mk existence ==="
+          ls -la feeds/luci/luci.mk 2>&1 || echo "NOT FOUND: feeds/luci/luci.mk"
+          ls -la package/feeds/ 2>&1 | head -20
+          echo ""
+          echo "=== 2. Show package Makefile (cat -A shows all chars) ==="
+          cat -A package/luci-app-l2tp-pool-manager/Makefile
+          echo ""
+          echo "=== 3. Try make dry-run parse (this reveals $(error) calls) ==="
+          make -C package/luci-app-l2tp-pool-manager -n download V=sc 2>&1 || true
+          echo ""
+          echo "=== 4. Try make print-database ==="
+          make -C package/luci-app-l2tp-pool-manager -p V=sc 2>&1 | head -100 || true
+          echo ""
+          echo "=== 5. Direct include test ==="
+          cd package/luci-app-l2tp-pool-manager && make -f ../../../../include/toplevel.mk package/luci-app-l2tp-pool-manager/download V=99 2>&1 | tail -80 || true
+
       - name: Build firmware
         run: make -j1 V=sc
 
