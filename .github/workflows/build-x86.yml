@@ -31,6 +31,8 @@ jobs:
       - name: Copy package into SDK
         run: |
           cp -r package-src/package/luci-app-l2tp-pool-manager ${SDK_ROOT}/package/
+          echo "=== Verify package location ==="
+          ls -la ${SDK_ROOT}/package/luci-app-l2tp-pool-manager/
 
       - name: Update and install feeds
         run: |
@@ -46,13 +48,22 @@ jobs:
           EOF
           make defconfig
 
-      - name: Build package
+      - name: Build package (clean + package target)
         run: |
           cd ${SDK_ROOT}
-          make package/luci-app-l2tp-pool-manager/compile V=s -j$(nproc)
+          echo "=== Clean previous build ==="
+          make package/luci-app-l2tp-pool-manager/clean V=s
+          echo "=== Build ipk ==="
+          make package/luci-app-l2tp-pool-manager/package V=s -j$(nproc)
+          echo "=== Search for generated ipk ==="
+          find ${SDK_ROOT}/bin -name "luci-app-l2tp-pool-manager*.ipk" 2>/dev/null || echo "NO IPK FOUND IN bin/"
+          find ${SDK_ROOT} -name "luci-app-l2tp-pool-manager*.ipk" 2>/dev/null || echo "NO IPK FOUND ANYWHERE"
 
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-l2tp-pool-manager-ipk
-          path: ${SDK_ROOT}/bin/packages/*/packages/luci-app-l2tp-pool-manager*.ipk
+          path: |
+            ${SDK_ROOT}/bin/packages/**/*.ipk
+            **/luci-app-l2tp-pool-manager*.ipk
+          if-no-files-found: warn
