@@ -1,4 +1,4 @@
-name: Build OpenWrt x86_64 firmware
+name: Build luci-app-l2tp-pool-manager ipk
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
     steps:
       - name: Checkout package source
         uses: actions/checkout@v4
@@ -17,97 +17,43 @@ jobs:
           fetch-depth: 1
           path: package-src
 
-      - name: Clone OpenWrt
+      - name: Install dependencies
         run: |
-          git clone --depth=1 --branch openwrt-23.05 https://github.com/openwrt/openwrt.git openwrt
-          cd openwrt
-          echo "OPENWRT_ROOT=$PWD" >> $GITHUB_ENV
-
-      - name: Copy package into OpenWrt
-        run: |
-          cp -r package-src/package/luci-app-l2tp-pool-manager ${OPENWRT_ROOT}/package/
-
-      - name: Add swap
-        run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-
-      - name: Install build dependencies
-        run: |
-          cd ${OPENWRT_ROOT}
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk \
-            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
-            python3-setuptools rsync swig unzip zlib1g-dev file wget
+          sudo apt-get install -y build-essential git wget ccache rsync
+
+      - name: Download OpenWrt SDK for x86_64
+        run: |
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64.tar.xz
+          tar xf openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64.tar.xz
+          echo "SDK_ROOT=$PWD/openwrt-sdk-23.05.5-x86-64_gcc-12-3.0.0.Linux-x86_64" >> $GITHUB_ENV
+
+      - name: Copy package into SDK
+        run: |
+          mkdir -p ${SDK_ROOT}/package/luci-app-l2tp-pool-manager
+          cp -r package-src/* ${SDK_ROOT}/package/luci-app-l2tp-pool-manager/
 
       - name: Update and install feeds
         run: |
-          cd ${OPENWRT_ROOT}
+          cd ${SDK_ROOT}
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Diagnose l2tppool Makefile (BEFORE build)
+      - name: Configure (enable l2tppool)
         run: |
-          cd ${OPENWRT_ROOT}
-          echo "=========================================="
-          echo "1. Check luci.mk exists"
-          echo "=========================================="
-          ls -la feeds/luci/luci.mk 2>&1 || echo "MISSING!"
-          echo ""
-          echo "=========================================="
-          echo "2. Show package dir contents"
-          echo "=========================================="
-          ls -laR package/luci-app-l2tp-pool-manager/
-          echo ""
-          echo "=========================================="
-          echo "3. Makefile raw content (hexdump first 3 bytes for BOM)"
-          echo "=========================================="
-          hexdump -C package/luci-app-l2tp-pool-manager/Makefile | head -3
-          echo ""
-          cat -A package/luci-app-l2tp-pool-manager/Makefile
-          echo ""
-          echo "=========================================="
-          echo "4. Test make parse with full stderr capture"
-          echo "=========================================="
-          make -C package/luci-app-l2tp-pool-manager download V=sc 2>&1; echo "EXIT_CODE=$?"
-          echo ""
-          echo "=========================================="
-          echo "5. Test with make -d (debug parser)"
-          echo "=========================================="
-          make -C package/luci-app-l2tp-pool-manager -n download -d 2>&1 | grep -iE "(error|fail|missing|luci\.mk|include)" | head -30 || true
-
-      - name: Configure firmware
-        run: |
-          cd ${OPENWRT_ROOT}
-          cat > .config <<'EOF'
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_Generic=y
-          CONFIG_TARGET_ROOTFS_EXT4FS=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          CONFIG_TARGET_ROOTFS_TARGZ=y
+          cd ${SDK_ROOT}
+          cat >> .config <<'EOF'
           CONFIG_PACKAGE_luci-app-l2tp-pool-manager=y
-          CONFIG_PACKAGE_luci-app-pbr=y
-          CONFIG_PACKAGE_pbr=y
-          CONFIG_PACKAGE_xl2tpd=y
-          CONFIG_PACKAGE_ppp=y
-          CONFIG_PACKAGE_ppp-mod-pppol2tp=y
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_jsonfilter=y
-          CONFIG_PACKAGE_ip-full=y
-          CONFIG_PACKAGE_dnsmasq-full=y
           EOF
           make defconfig
 
-      - name: Build firmware (serial, verbose)
+      - name: Build package
         run: |
-          cd ${OPENWRT_ROOT}
-          make -j1 V=sc
+          cd ${SDK_ROOT}
+          make package/luci-app-l2tp-pool-manager/compile V=s -j$(nproc)
 
-      - name: Upload firmware artifacts
+      - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-x86_64
-          path: ${OPENWRT_ROOT}/bin/targets/x86/64/*
+          name: luci-app-l2tp-pool-manager-ipk
+          path: ${SDK_ROOT}/bin/packages/*/packages/luci-app-l2tp-pool-manager*.ipk
