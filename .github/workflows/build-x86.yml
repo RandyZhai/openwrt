@@ -1,4 +1,4 @@
-name: Build luci-app-l2tp-pool-manager ipk
+name: Build l2tppool via SDK
 
 on:
   push:
